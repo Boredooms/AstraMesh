@@ -15,7 +15,7 @@ delivered via store-and-forward when a recipient is temporarily offline.
 |------|-------|-------|
 | 0 | Gradle multi-module skeleton, CI, app shell | ✅ builds |
 | 1 | Domain + protocol models + serialization tests | ✅ 17 tests |
-| 2 | Room persistence | planned |
+| 2 | Room persistence | ✅ done |
 | 3 | BLE discovery | planned |
 | 4 | Transport abstraction (BLE GATT) | planned |
 | 5 | Routing / relay / store-and-forward | planned |
