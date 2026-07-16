@@ -1,0 +1,34 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android
+local.properties
+*.apk
+*.aab
+*.keystore
+captures/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AstraMesh local toolchain env (machine-specific, not for CI)
+.astramesh-env.sh
+
+# Node / web
+web/node_modules/
+web/.next/
+web/out/
+web/.env*.local
+node_modules/
+
+# Misc
+*.log
