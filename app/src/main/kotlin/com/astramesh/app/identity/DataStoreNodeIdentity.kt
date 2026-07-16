@@ -70,8 +70,13 @@ class DataStoreNodeIdentity @Inject constructor(
             )
         }
         val keys = KeyExchange.generateKeyPair()
-        val id = "node-" + UUID.randomUUID().toString().take(8)
-        val name = "AstraMesh-" + id.takeLast(4)
+        // Short enough (8 ASCII chars = 8 bytes) to fit inside a legacy BLE advertisement's
+        // 31-byte hard limit alongside the service UUID and flags -- see BleAdvertiser's byte
+        // budget comment. This id is used as the addressing key throughout the mesh (packet
+        // senderId/receiverId, peer lookups), so it must be exactly what gets advertised, not
+        // a separately truncated copy of a longer id.
+        val id = UUID.randomUUID().toString().replace("-", "").take(8)
+        val name = "AstraMesh-$id"
         context.identityStore.edit { e ->
             e[KEY_NODE_ID] = id
             e[KEY_NAME] = name

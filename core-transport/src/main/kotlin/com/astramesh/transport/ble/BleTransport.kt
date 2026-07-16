@@ -45,14 +45,21 @@ class BleTransport @Inject constructor(
 
     override suspend fun start(selfNodeId: String) {
         this.selfNodeId = selfNodeId
-        advertiser.start(selfNodeId)
-        scanner.start { endpoint ->
-            if (endpoint.nodeId == selfNodeId) return@start
-            val isNew = endpoints.put(endpoint.nodeId, endpoint) == null
-            if (isNew) {
-                scope.launch { _events.emit(TransportEvent.PeerDiscovered(endpoint)) }
-            }
-        }
+        advertiser.start(selfNodeId, onError = { message ->
+            scope.launch { _events.emit(TransportEvent.Error(message)) }
+        })
+        scanner.start(
+            onPeer = { endpoint ->
+                if (endpoint.nodeId == selfNodeId) return@start
+                val isNew = endpoints.put(endpoint.nodeId, endpoint) == null
+                if (isNew) {
+                    scope.launch { _events.emit(TransportEvent.PeerDiscovered(endpoint)) }
+                }
+            },
+            onError = { message ->
+                scope.launch { _events.emit(TransportEvent.Error(message)) }
+            },
+        )
     }
 
     override suspend fun stop() {

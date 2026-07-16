@@ -27,6 +27,7 @@ data class DiscoveryUiState(
     val scanning: Boolean = false,
     val transportAvailable: Boolean = true,
     val peers: List<Peer> = emptyList(),
+    val lastError: String? = null,
 )
 
 /**
@@ -42,13 +43,19 @@ class DiscoveryViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val scanning = MutableStateFlow(false)
+    private val lastError = MutableStateFlow<String?>(null)
 
     val uiState: StateFlow<DiscoveryUiState> =
-        combine(peerRepository.observePeers(), scanning) { peers, isScanning ->
+        combine(
+            peerRepository.observePeers(),
+            scanning,
+            lastError,
+        ) { peers, isScanning, error ->
             DiscoveryUiState(
                 scanning = isScanning,
                 transportAvailable = transport.isAvailable(),
                 peers = peers.sortedByDescending { it.lastContact },
+                lastError = error,
             )
         }.stateIn(
             scope = viewModelScope,
@@ -77,6 +84,7 @@ class DiscoveryViewModel @Inject constructor(
                 when (event) {
                     is TransportEvent.PeerDiscovered -> upsertDiscovered(event)
                     is TransportEvent.PeerLost -> peerRepository.removePeer(event.nodeId)
+                    is TransportEvent.Error -> lastError.value = event.message
                     else -> Unit
                 }
             }

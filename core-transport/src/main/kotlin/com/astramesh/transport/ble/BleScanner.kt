@@ -32,9 +32,10 @@ class BleScanner(private val context: Context) {
 
     fun isAvailable(): Boolean = scanner != null
 
-    fun start(onPeer: (PeerEndpoint) -> Unit) {
+    fun start(onPeer: (PeerEndpoint) -> Unit, onError: (String) -> Unit = {}) {
         val sc = scanner ?: run {
             Log.w(TAG, "BLE scanner unavailable")
+            onError("BLE scanner unavailable (Bluetooth off or unsupported)")
             return
         }
         if (callback != null) return
@@ -59,6 +60,7 @@ class BleScanner(private val context: Context) {
 
             override fun onScanFailed(errorCode: Int) {
                 Log.w(TAG, "Scan failed: $errorCode")
+                onError("Scan failed (error code $errorCode)")
             }
         }
         callback = cb
@@ -66,6 +68,7 @@ class BleScanner(private val context: Context) {
             .onFailure {
                 Log.w(TAG, "startScan threw", it)
                 callback = null
+                onError("Scan start threw: ${it.message}")
             }
     }
 

@@ -1,5 +1,7 @@
 package com.astramesh.feature.discovery
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,9 +29,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -43,6 +49,19 @@ fun DiscoveryScreen(
     viewModel: DiscoveryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Manifest permissions alone don't grant BLUETOOTH_SCAN/ADVERTISE/CONNECT on API 31+ —
+    // they must be requested at runtime, or startAdvertising()/startScan() fail silently with
+    // a SecurityException the transport layer swallows (this is why two nearby devices could
+    // never see each other: neither side's radio ever actually turned on).
+    var hasPermission by remember { mutableStateOf(BlePermissions.allGranted(context)) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        hasPermission = grants.values.all { it }
+        if (hasPermission) viewModel.startScan()
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Nearby Nodes") }) },
@@ -56,11 +75,33 @@ fun DiscoveryScreen(
                 scanning = state.scanning,
                 available = state.transportAvailable,
                 peerCount = state.peers.size,
-                onStart = viewModel::startScan,
+                onStart = {
+                    if (hasPermission) {
+                        viewModel.startScan()
+                    } else {
+                        permissionLauncher.launch(BlePermissions.required())
+                    }
+                },
                 onStop = viewModel::stopScan,
             )
 
-            if (state.peers.isEmpty()) {
+            state.lastError?.let { error ->
+                Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+
+            if (!hasPermission) {
+                PermissionNeeded(
+                    modifier = Modifier.fillMaxSize(),
+                    onRequest = { permissionLauncher.launch(BlePermissions.required()) },
+                )
+            } else if (state.peers.isEmpty()) {
                 EmptyPeers(scanning = state.scanning, modifier = Modifier.fillMaxSize())
             } else {
                 LazyColumn(
@@ -163,6 +204,36 @@ private fun SessionChip(label: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
+    }
+}
+
+@Composable
+private fun PermissionNeeded(onRequest: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Filled.BluetoothSearching,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "Bluetooth permission needed",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Text(
+                text = "AstraMesh needs Bluetooth permission to discover and connect to " +
+                    "nearby nodes. Nothing is shared until you grant it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Button(onClick = onRequest, modifier = Modifier.padding(top = 16.dp)) {
+                Text("Grant permission")
+            }
+        }
     }
 }
 
