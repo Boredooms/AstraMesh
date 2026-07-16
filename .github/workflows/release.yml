@@ -1,0 +1,61 @@
+name: Release APK
+
+# Builds an installable APK and publishes it as a downloadable asset on a GitHub Release
+# whenever a version tag (v*) is pushed. This is the stable, permanent download path for the
+# app -- workflow run artifacts (see android.yml) expire after 90 days, but Release assets do
+# not.
+#
+# NOTE: this uses the debug build variant, which Android auto-signs with a debug keystore so
+# it installs directly on a device (Settings > allow unknown sources). A release variant would
+# need a real signing keystore managed as a CI secret; that's a deliberate follow-up, not
+# something to fake with an unsigned APK (which Android refuses to install at all).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build APK and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run JVM unit tests
+        run: ./gradlew test --stacktrace
+
+      - name: Assemble debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Rename APK with version tag
+        run: |
+          mkdir -p release-out
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             "release-out/AstraMesh-${{ github.ref_name }}.apk"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: astramesh-release-apk
+          path: release-out/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-out/*.apk
+          generate_release_notes: true
+          name: AstraMesh ${{ github.ref_name }}

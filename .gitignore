@@ -13,6 +13,7 @@ captures/
 
 # IDE
 .idea/
+.vscode/
 *.iml
 .kotlin/
 

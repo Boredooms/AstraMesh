@@ -1,0 +1,116 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * AstraMesh design tokens (docs/design.md §5, §7, §13).
+ * These are the SAME hex values as core-ui/src/main/kotlin/com/astramesh/ui/theme/Color.kt so
+ * the mobile app and this site read as one product family, not two different projects.
+ */
+:root {
+  /* Base palette */
+  --astra-black: #000000;
+  --astra-surface: #0b0b0b;
+  --astra-panel: #121212;
+  --astra-border: #1a1a1a;
+  --astra-text-primary: #ededed;
+  --astra-text-secondary: #a8a8a8;
+  --astra-text-disabled: #6b6b6b;
+
+  /* Restrained accent + status (used sparingly, per docs/design.md §5) */
+  --astra-accent: #4fb0c6;
+  --astra-success: #5fa777;
+  --astra-warning: #c79a4b;
+  --astra-critical: #c65b5b;
+
+  /* shadcn/ui semantic mapping onto the AstraMesh palette */
+  --background: var(--astra-black);
+  --foreground: var(--astra-text-primary);
+  --card: var(--astra-panel);
+  --card-foreground: var(--astra-text-primary);
+  --popover: var(--astra-panel);
+  --popover-foreground: var(--astra-text-primary);
+  --primary: var(--astra-text-primary);
+  --primary-foreground: var(--astra-black);
+  --secondary: var(--astra-surface);
+  --secondary-foreground: var(--astra-text-primary);
+  --muted: var(--astra-surface);
+  --muted-foreground: var(--astra-text-secondary);
+  --accent: var(--astra-accent);
+  --accent-foreground: var(--astra-black);
+  --destructive: var(--astra-critical);
+  --destructive-foreground: var(--astra-text-primary);
+  --border: var(--astra-border);
+  --input: var(--astra-border);
+  --ring: var(--astra-accent);
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-astra-black: var(--astra-black);
+  --color-astra-surface: var(--astra-surface);
+  --color-astra-panel: var(--astra-panel);
+  --color-astra-border: var(--astra-border);
+  --color-astra-text-primary: var(--astra-text-primary);
+  --color-astra-text-secondary: var(--astra-text-secondary);
+  --color-astra-text-disabled: var(--astra-text-disabled);
+  --color-astra-accent: var(--astra-accent);
+  --color-astra-success: var(--astra-success);
+  --color-astra-warning: var(--astra-warning);
+  --color-astra-critical: var(--astra-critical);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-sm: calc(var(--radius) - 8px);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* AstraMesh is intentionally dark-only, matching the mobile app (docs/design.md §3). */
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+* {
+  border-color: var(--border);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--astra-accent) 35%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

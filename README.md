@@ -26,7 +26,7 @@ delivered via store-and-forward when a recipient is temporarily offline.
 | 9 | Optional PC companion | planned |
 | 10 | Security hardening | planned |
 | 11 | GitHub workflows | ✅ scaffolded |
-| 12 | Promotional website (`/web`) | planned |
+| 12 | Promotional website (`/web`) | ✅ Next.js + Tailwind + shadcn-style UI |
 
 ## Architecture
 
@@ -69,6 +69,18 @@ Requires JDK 17 and the Android SDK (compileSdk 35). The Gradle wrapper is commi
 ```
 
 Minimums: `minSdk = 26`, `targetSdk = 35`.
+
+## Download the APK
+
+- **Tagged releases** (permanent): [GitHub Releases](../../releases) — push a `v*` tag (e.g.
+  `v0.1.0`) to trigger [`release.yml`](.github/workflows/release.yml), which builds, tests, and
+  attaches `AstraMesh-<tag>.apk` to a new GitHub Release.
+- **Every push to `main`** (expires after 90 days): the `astramesh-debug-apk` artifact on the
+  latest successful run of [`android.yml`](.github/workflows/android.yml), under the
+  [Actions](../../actions) tab.
+
+The APK is debug-signed (Android's default debug keystore) so it installs directly on a device
+after enabling "install from unknown sources" — no separate signing step required.
 
 ## Principles
 
