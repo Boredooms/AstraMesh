@@ -47,7 +47,7 @@ jobs:
         run: |
           mkdir -p release-out
           cp app/build/outputs/apk/debug/app-debug.apk \
-             "release-out/AstraMesh-${{ github.ref_name }}.apk"
+             "release-out/AstraMesh-${{ github.ref_name }}-debug-signed.apk"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
