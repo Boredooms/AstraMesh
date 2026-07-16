@@ -145,13 +145,14 @@ flowchart TD
 ```text
 AstraMesh/
 ├─ app/
-├─ core/
-│  ├─ domain/
-│  ├─ protocol/
-│  ├─ routing/
-│  ├─ security/
-│  ├─ transport/
-│  └─ persistence/
+├─ core-domain/
+├─ core-protocol/
+├─ core-routing/
+├─ core-security/
+├─ core-transport/
+├─ core-persistence/
+├─ core-mesh/
+├─ core-ui/
 ├─ feature-discovery/
 ├─ feature-chat/
 ├─ feature-files/
@@ -165,12 +166,18 @@ AstraMesh/
 
 ### Module goals
 
-- `core/domain`: entities, use cases, business rules
-- `core/protocol`: packet models and serialization
-- `core/routing`: relay logic and delivery algorithms
-- `core/security`: key management and encryption
-- `core/transport`: Bluetooth and transport abstraction
-- `core/persistence`: local storage and queues
+- `core-domain`: entities, use cases, business rules
+- `core-protocol`: packet models and serialization
+- `core-routing`: relay logic and delivery algorithms
+- `core-security`: key management and encryption
+- `core-transport`: Bluetooth and transport abstraction
+- `core-persistence`: local storage and queues
+- `core-mesh`: `MeshCoordinator` + `SessionKeyManager` — the send/receive pipeline that wires
+  transport, routing, security, and persistence together (§14), DI'd via Hilt so any feature
+  module can inject it directly instead of talking to those layers individually
+- `core-ui`: shared black-monochrome design tokens (color, spacing, radius) and reusable
+  Compose components (message bubbles, delivery chips) so feature modules stay visually
+  consistent without duplicating theme code (docs/design.md §5, §10)
 - `feature-*`: UI features
 - `desktop`: optional PC node and dashboard
 - `web`: promotional site
@@ -178,6 +185,48 @@ AstraMesh/
 - `.github/workflows`: CI/CD
 
 ---
+
+## 6.1 Module Dependency Graph
+
+```mermaid
+graph TD
+    app[app] --> core-mesh
+    app --> core-ui
+    app --> feature-discovery
+    app --> feature-chat
+    app --> feature-files
+    app --> feature-broadcast
+    app --> feature-settings
+    app --> core-persistence
+    app --> core-transport
+
+    feature-chat --> core-mesh
+    feature-chat --> core-ui
+    feature-chat --> core-persistence
+    feature-discovery --> core-transport
+    feature-discovery --> core-persistence
+
+    core-mesh --> core-transport
+    core-mesh --> core-routing
+    core-mesh --> core-security
+    core-mesh --> core-domain
+    core-mesh --> core-protocol
+
+    core-transport --> core-domain
+    core-transport --> core-protocol
+    core-persistence --> core-domain
+    core-persistence --> core-protocol
+    core-routing --> core-domain
+    core-routing --> core-protocol
+    core-ui --> core-domain
+
+    core-domain --> core-protocol
+```
+
+Pure-Kotlin modules (`core-domain`, `core-protocol`, `core-routing`, `core-security`) have no
+Android dependency and are JVM-unit-testable in isolation. `core-mesh` and `core-persistence`
+are Android libraries (Hilt-backed) but contain no UI. `core-ui` is Compose-only with no
+transport/persistence knowledge — it is a pure design-system module.
 
 ## 7. Network Model
 

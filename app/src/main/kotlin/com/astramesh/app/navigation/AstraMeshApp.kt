@@ -11,12 +11,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.astramesh.feature.broadcast.BroadcastScreen
-import com.astramesh.feature.chat.ChatScreen
+import com.astramesh.feature.chat.ChatListScreen
+import com.astramesh.feature.chat.ChatThreadScreen
 import com.astramesh.feature.discovery.DiscoveryScreen
 import com.astramesh.feature.files.FilesScreen
 import com.astramesh.feature.settings.SettingsScreen
@@ -60,7 +63,19 @@ fun AstraMeshApp() {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(AstraDestination.Discovery.route) { DiscoveryScreen() }
-            composable(AstraDestination.Chat.route) { ChatScreen() }
+            composable(AstraDestination.Chat.route) {
+                ChatListScreen(
+                    onOpenConversation = { peerId ->
+                        navController.navigate("chat/$peerId")
+                    },
+                )
+            }
+            composable(
+                route = "chat/{peerId}",
+                arguments = listOf(navArgument("peerId") { type = NavType.StringType }),
+            ) {
+                ChatThreadScreen(onBack = { navController.popBackStack() })
+            }
             composable(AstraDestination.Files.route) { FilesScreen() }
             composable(AstraDestination.Broadcast.route) { BroadcastScreen() }
             composable(AstraDestination.Settings.route) { SettingsScreen() }

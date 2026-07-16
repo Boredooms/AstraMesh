@@ -1,4 +1,4 @@
-package com.astramesh.app.ui.theme
+package com.astramesh.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
@@ -21,3 +21,8 @@ val AstraAccent = Color(0xFF4FB0C6)      // muted steel/cyan — active
 val AstraSuccess = Color(0xFF5FA777)     // delivered / success
 val AstraWarning = Color(0xFFC79A4B)     // pending / warning
 val AstraCritical = Color(0xFFC65B5B)    // emergency / failure
+
+// Outgoing-message bubble surface (distinct from AstraPanel so sent/received read at a glance,
+// while staying inside the monochrome family — see docs/design.md §5).
+val AstraBubbleOutgoing = Color(0xFF1E1E1E)
+val AstraBubbleIncoming = AstraPanel

@@ -18,8 +18,8 @@ delivered via store-and-forward when a recipient is temporarily offline.
 | 2 | Room persistence | ✅ done |
 | 3 | BLE discovery | ✅ done |
 | 4 | Transport abstraction | ✅ discovery; GATT send stubbed |
-| 5 | Routing / relay / store-and-forward | planned |
-| 6 | Chat UI | planned |
+| 5 | Routing / relay / store-and-forward | ✅ 3 mesh integration tests |
+| 6 | Chat UI | ✅ conversation list + thread, real send/receive |
 | 7 | File transfer | planned |
 | 8 | Emergency broadcast | planned |
 | 9 | Optional PC companion | planned |
@@ -41,6 +41,10 @@ core-routing/        epidemic relay, dedup, TTL, retry, ACK                 (pur
 core-security/       keys, handshake, authenticated encryption              (pure Kotlin)
 core-transport/      transport abstraction + BLE GATT                       (Android)
 core-persistence/    Room entities, DAOs, repositories                      (Android)
+core-mesh/           MeshCoordinator + SessionKeyManager, wires transport/   (Android)
+                     routing/security/persistence into send+receive, DI'd
+core-ui/             shared black-monochrome design tokens + components     (Android/Compose)
+                     (theme, spacing/radius scale, MessageBubble, chips)
 feature-discovery/   nearby peers UI
 feature-chat/        chat UI
 feature-files/       file transfer UI

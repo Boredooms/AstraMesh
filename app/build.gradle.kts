@@ -58,6 +58,8 @@ dependencies {
     implementation(project(":core-security"))
     implementation(project(":core-transport"))
     implementation(project(":core-persistence"))
+    implementation(project(":core-mesh"))
+    implementation(project(":core-ui"))
     implementation(project(":feature-discovery"))
     implementation(project(":feature-chat"))
     implementation(project(":feature-files"))
