@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -91,9 +92,24 @@ class DiscoveryViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
+    /**
+     * Records a radio-level sighting of [event]'s endpoint.
+     *
+     * Never downgrades an existing session below its current state. A peer's BLE
+     * advertisement can go unseen by the scanner for a while (scan restarts every ~20s,
+     * peers are pruned as stale after ~45s of no sighting -- see BleTransport) even while a
+     * GATT connection is still open and ACTIVE, since scanning and an existing connection are
+     * independent radio activities on Android. If that peer is later re-seen by the scanner,
+     * this used to unconditionally reset sessionState back to DISCOVERED -- silently wiping
+     * out a live, working ACTIVE session (and its direct-peer routing eligibility) purely
+     * because the advertisement happened to be missed for one scan cycle. That's the root
+     * cause of a connection that "drops for no reason" after some time even though nothing
+     * about the actual link failed.
+     */
     private suspend fun upsertDiscovered(event: TransportEvent.PeerDiscovered) {
         val e = event.endpoint
         val now = System.currentTimeMillis()
+        val existing = peerRepository.observePeers().first().firstOrNull { it.nodeId == e.nodeId }
         val node = peerRepository.getNode(e.nodeId)?.copy(lastSeen = now) ?: Node(
             nodeId = e.nodeId,
             deviceName = e.nodeId.take(8),
@@ -104,10 +120,12 @@ class DiscoveryViewModel @Inject constructor(
             lastSeen = now,
             relayCapable = e.relaySupported,
         )
+        val sessionState = existing?.sessionState.takeUnless { it == null || it == SessionState.CLOSED }
+            ?: SessionState.DISCOVERED
         peerRepository.upsertPeer(
             Peer(
                 node = node,
-                sessionState = SessionState.DISCOVERED,
+                sessionState = sessionState,
                 signalStrength = e.signalStrength,
                 lastContact = now,
             )

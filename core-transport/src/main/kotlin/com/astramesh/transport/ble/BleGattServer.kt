@@ -175,7 +175,9 @@ class BleGattServer(private val context: Context) {
         )
         val notifyCharacteristic = BluetoothGattCharacteristic(
             BleConstants.NOTIFY_CHARACTERISTIC_UUID,
-            BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+            // INDICATE, not NOTIFY -- see BleConstants.NOTIFY_CHARACTERISTIC_UUID's doc
+            // comment for why acknowledged delivery is required here.
+            BluetoothGattCharacteristic.PROPERTY_INDICATE,
             BluetoothGattCharacteristic.PERMISSION_READ,
         )
         notifyCharacteristic.addDescriptor(
@@ -246,7 +248,11 @@ class BleGattServer(private val context: Context) {
         val deferred = CompletableDeferred<Boolean>()
         pendingNotify[address] = deferred
         characteristic.value = framed
-        val queued = runCatching { server.notifyCharacteristicChanged(device, characteristic, false) }
+        // confirm = true requests an INDICATION (client must ATT-acknowledge) rather than an
+        // unacknowledged NOTIFICATION -- see BleConstants.NOTIFY_CHARACTERISTIC_UUID's doc
+        // comment. onNotificationSent only fires once that acknowledgment round-trip
+        // completes when confirm is true, so awaiting it below is a real delivery signal.
+        val queued = runCatching { server.notifyCharacteristicChanged(device, characteristic, true) }
             .getOrDefault(false)
         if (!queued) return false
         return withTimeoutOrNull(NOTIFY_TIMEOUT_MS) { deferred.await() } ?: false

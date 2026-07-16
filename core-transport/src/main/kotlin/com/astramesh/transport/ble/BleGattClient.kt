@@ -306,7 +306,12 @@ class BleGattClient(private val context: Context) {
             connectedDeferred.takeIf { !it.isCompleted }?.complete(true)
             return
         }
-        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        // ENABLE_INDICATION_VALUE, not ENABLE_NOTIFICATION_VALUE -- the server characteristic
+        // is PROPERTY_INDICATE (see BleConstants.NOTIFY_CHARACTERISTIC_UUID's doc comment for
+        // why acknowledged delivery is required). Writing the wrong CCCD value here is a common,
+        // silent BLE mistake: the subscription would appear to succeed, but the server's
+        // indications would never actually be delivered.
+        descriptor.value = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
         val wrote = runCatching { gatt.writeDescriptor(descriptor) }.getOrDefault(false)
         if (!wrote) {
             connectedDeferred.takeIf { !it.isCompleted }?.complete(true)

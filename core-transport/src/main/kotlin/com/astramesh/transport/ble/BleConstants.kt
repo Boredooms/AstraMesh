@@ -21,13 +21,26 @@ object BleConstants {
     val PACKET_CHARACTERISTIC_UUID: UUID = UUID.fromString("a57a3e01-9b1e-4c2f-8f6d-0a11e5ab5100")
 
     /**
-     * GATT characteristic the server side NOTIFIES on, to push a packet back to the connected
-     * client over the SAME connection. This is what makes one GATT connection fully
+     * GATT characteristic the server side INDICATES on, to push a packet back to the
+     * connected client over the SAME connection. This is what makes one GATT connection fully
      * bidirectional: whichever node happened to connect (e.g. to deliver a HELLO) does not
      * need the other side to open a second, independent connection back just to reply (that
      * second connection depending on independent scan/MAC-discovery on the replying side was
      * the root cause of one-sided handshakes -- see docs/architecture.md §9 and
      * BleTransport.send()'s doc comment).
+     *
+     * Deliberately an INDICATE characteristic, not NOTIFY. A GATT notification is fire-and-
+     * forget at the application layer -- the sender's onNotificationSent callback only
+     * confirms the local Bluetooth stack accepted the send, NOT that the remote device
+     * actually received it (https://docs.silabs.com/bluetooth/3.2/bluetooth-general-gatt-protocol/:
+     * "Notifications are unacknowledged, while indications are acknowledged. Notifications are
+     * therefore faster but less reliable."). Since packets are fragmented into several chunks,
+     * an unacknowledged notify means later chunks can be sent (and the whole packet reported
+     * as "sent") before the peer has even received earlier ones, or lost entirely with no
+     * signal to the sender -- which is exactly the "sometimes relayed/received, sometimes not,
+     * even while showing Connected" behavior this fixes. GATT indications require the
+     * receiving device's Bluetooth stack to send an ATT-level confirmation before the next
+     * indication is allowed to send, giving real per-chunk delivery confirmation for free.
      */
     val NOTIFY_CHARACTERISTIC_UUID: UUID = UUID.fromString("a57a3e02-9b1e-4c2f-8f6d-0a11e5ab5100")
 
