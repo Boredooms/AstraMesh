@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
@@ -17,19 +18,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * GATT central (client) role of the BLE transport (docs/architecture.md §9) -- the sending
- * half. [BleGattServer] is the receiving half; see that class's doc comment for why both
- * roles run on every node.
+ * GATT central (client) role of the BLE transport (docs/architecture.md §9) -- the role that
+ * opens the connection. [BleGattServer] is the role that accepts it; see that class's doc
+ * comment for why ONE connection now carries traffic in both directions.
  *
- * One [BluetoothGatt] connection per remote address is opened lazily and cached in
- * [connections] so repeated sends to the same peer don't pay a fresh connect + MTU
- * negotiation + service discovery cost every time (mirrors the `endpoints` caching pattern
- * already used in [BleTransport]). A per-address [Mutex] serializes the connect/write
- * sequence for that address, since [BluetoothGatt] callbacks are inherently async and a
- * second concurrent send to the same peer must not race the first one's chunk writes.
+ * - [send] WRITES to [BleConstants.PACKET_CHARACTERISTIC_UUID] to deliver a packet TO the
+ *   server side.
+ * - On connect, this class also subscribes to [BleConstants.NOTIFY_CHARACTERISTIC_UUID] so
+ *   the server side can push packets BACK over this SAME connection -- e.g. B's HELLO_ACK
+ *   reply to A's HELLO arrives as a notification on the connection A opened, instead of
+ *   requiring B to independently open a second connection back to A.
+ *
+ * One [BluetoothGatt] connection per remote address is cached in [connections] so repeated
+ * sends to the same peer don't pay a fresh connect + MTU negotiation + service discovery +
+ * subscribe cost every time. A per-address [Mutex] serializes the connect/write sequence,
+ * since [BluetoothGatt] callbacks are inherently async.
  */
 @SuppressLint("MissingPermission")
 class BleGattClient(private val context: Context) {
@@ -40,17 +47,27 @@ class BleGattClient(private val context: Context) {
         var ready = false
         var pendingWrite: CompletableDeferred<Boolean>? = null
         var pendingConnect: CompletableDeferred<Boolean>? = null
-        var pendingMtu: CompletableDeferred<Int>? = null
+        val reassembly = ByteArrayOutputStream()
+
+        // Reused/cached connections must always dispatch incoming notifications to whichever
+        // caller most recently sent over them, not just whoever happened to open the
+        // connection originally -- otherwise a later send() from a different code path would
+        // silently never see replies pushed back on this link.
+        @Volatile var onPacketReceived: (Packet) -> Unit = {}
     }
 
     private val connections = ConcurrentHashMap<String, Connection>()
 
     fun isAvailable(): Boolean = context.getSystemService(BluetoothManager::class.java) != null
 
+    /** True if this client currently holds a ready outbound connection to [address]. */
+    fun isConnectedTo(address: String): Boolean = connections[address]?.ready == true
+
     /**
      * Sends [packet] to the device at [address], opening/reusing a GATT connection.
-     * [onLinkStateChanged] surfaces connection lifecycle to the caller so it can be forwarded
-     * as [com.astramesh.transport.TransportEvent.LinkStateChanged].
+     * [onLinkStateChanged] surfaces connection lifecycle; [onPacketReceived] surfaces any
+     * packet the server side pushes back over this same connection as a notification (see
+     * class doc comment) -- callers forward both as [com.astramesh.transport.TransportEvent]s.
      *
      * @return true only if every fragment of the packet was actually written and acknowledged
      *   by the remote GATT stack -- not merely handed to the OS.
@@ -59,8 +76,10 @@ class BleGattClient(private val context: Context) {
         packet: Packet,
         address: String,
         onLinkStateChanged: (LinkState) -> Unit = {},
+        onPacketReceived: (Packet) -> Unit = {},
     ): Boolean {
-        val connection = obtainConnection(address, onLinkStateChanged) ?: return false
+        val connection = obtainConnection(address, onLinkStateChanged, onPacketReceived) ?: return false
+        connection.onPacketReceived = onPacketReceived
         return connection.mutex.withLock {
             val characteristic = connection.gatt.getService(BleConstants.SERVICE_UUID)
                 ?.getCharacteristic(BleConstants.PACKET_CHARACTERISTIC_UUID)
@@ -111,19 +130,20 @@ class BleGattClient(private val context: Context) {
     }
 
     /**
-     * Returns a connected, MTU-negotiated [Connection] for [address], opening one if needed.
+     * Returns a connected, MTU-negotiated, notification-subscribed [Connection] for
+     * [address], opening one if needed.
      *
      * Retries the connect attempt up to [CONNECT_ATTEMPTS] times. The very first
      * `connectGatt()` to a device that was JUST discovered by an active scan very commonly
      * fails once on real Android hardware (frequently surfaced as GATT error 133,
      * `GATT_ERROR`) purely from radio/timing contention between the scanner and the new
      * connection attempt -- not a real, persistent failure. Retrying immediately after
-     * closing the failed [BluetoothGatt] resolves this in the overwhelming majority of cases,
-     * which is why a first-try send failing is not itself a sign anything is broken.
+     * closing the failed [BluetoothGatt] resolves this in the overwhelming majority of cases.
      */
     private suspend fun obtainConnection(
         address: String,
         onLinkStateChanged: (LinkState) -> Unit,
+        onPacketReceived: (Packet) -> Unit,
     ): Connection? {
         connections[address]?.let { existing ->
             if (existing.ready) return existing
@@ -131,7 +151,7 @@ class BleGattClient(private val context: Context) {
         }
 
         repeat(CONNECT_ATTEMPTS) { attempt ->
-            val connection = attemptConnect(address, onLinkStateChanged)
+            val connection = attemptConnect(address, onLinkStateChanged, onPacketReceived)
             if (connection != null) return connection
             if (attempt < CONNECT_ATTEMPTS - 1) delay(CONNECT_RETRY_DELAY_MS)
         }
@@ -141,6 +161,7 @@ class BleGattClient(private val context: Context) {
     private suspend fun attemptConnect(
         address: String,
         onLinkStateChanged: (LinkState) -> Unit,
+        onPacketReceived: (Packet) -> Unit,
     ): Connection? {
         val manager = context.getSystemService(BluetoothManager::class.java) ?: return null
         val adapter = manager.adapter?.takeIf { it.isEnabled } ?: return null
@@ -172,14 +193,18 @@ class BleGattClient(private val context: Context) {
                     return
                 }
                 runCatching { gatt.requestMtu(BleConstants.TARGET_MTU) }
-                    .onFailure { connectionRef?.pendingConnect?.takeIf { !it.isCompleted }?.complete(true) }
+                    .onFailure {
+                        // MTU negotiation itself failed to even start -- proceed straight to
+                        // subscribing rather than getting stuck waiting for onMtuChanged.
+                        subscribeToNotifications(gatt, connectionRef, connectedDeferred)
+                    }
             }
 
             override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
                 // A rejected/failed MTU negotiation (some OEM stacks refuse it) is not fatal --
                 // fall back to the default ATT MTU rather than failing the connection outright.
                 connectionRef?.mtu = if (status == BluetoothGatt.GATT_SUCCESS) mtu else DEFAULT_ATT_MTU
-                connectionRef?.pendingConnect?.takeIf { !it.isCompleted }?.complete(true)
+                subscribeToNotifications(gatt, connectionRef, connectedDeferred)
             }
 
             @Suppress("DEPRECATION")
@@ -190,6 +215,29 @@ class BleGattClient(private val context: Context) {
             ) {
                 connectionRef?.pendingWrite?.takeIf { !it.isCompleted }
                     ?.complete(status == BluetoothGatt.GATT_SUCCESS)
+            }
+
+            override fun onDescriptorWrite(
+                gatt: BluetoothGatt,
+                descriptor: BluetoothGattDescriptor,
+                status: Int,
+            ) {
+                // Notification subscription (CCCD write) confirmed one way or another --
+                // the connection is usable for sending regardless of whether the subscribe
+                // itself succeeded (a failed subscribe just means we won't get replies pushed
+                // back on this link, not that outbound sends are broken).
+                connectionRef?.pendingConnect?.takeIf { !it.isCompleted }?.complete(true)
+            }
+
+            @Suppress("DEPRECATION")
+            override fun onCharacteristicChanged(
+                gatt: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+            ) {
+                if (characteristic.uuid != BleConstants.NOTIFY_CHARACTERISTIC_UUID) return
+                val value = characteristic.value ?: return
+                val conn = connectionRef
+                handleNotifyChunk(conn, value) { packet -> conn?.onPacketReceived?.invoke(packet) }
             }
         }
 
@@ -202,6 +250,7 @@ class BleGattClient(private val context: Context) {
 
         val connection = Connection(gatt).also { connectionRef = it }
         connection.pendingConnect = connectedDeferred
+        connection.onPacketReceived = onPacketReceived
         connections[address] = connection
 
         val connected = withTimeoutOrNull(CONNECT_TIMEOUT_MS) { connectedDeferred.await() } ?: false
@@ -213,6 +262,56 @@ class BleGattClient(private val context: Context) {
         connection.ready = true
         onLinkStateChanged(LinkState.CONNECTED)
         return connection
+    }
+
+    /** Reassembles a fragmented notification into a full packet once the last chunk arrives. */
+    private fun handleNotifyChunk(
+        connection: Connection?,
+        value: ByteArray,
+        onPacketReceived: (Packet) -> Unit,
+    ) {
+        if (connection == null || value.isEmpty()) return
+        val isLastChunk = value[0] == BleGattServer.LAST_CHUNK_FLAG
+        val chunkData = value.copyOfRange(1, value.size)
+        connection.reassembly.write(chunkData)
+        if (!isLastChunk) return
+
+        val bytes = connection.reassembly.toByteArray()
+        connection.reassembly.reset()
+        val packet = runCatching { ProtocolJson.decodePacket(String(bytes, Charsets.UTF_8)) }
+            .onFailure { Log.w(TAG, "Dropping malformed notify packet", it) }
+            .getOrNull() ?: return
+        onPacketReceived(packet)
+    }
+
+    /** Enables notifications both locally (setCharacteristicNotification) and on the remote CCCD. */
+    @Suppress("DEPRECATION")
+    private fun subscribeToNotifications(
+        gatt: BluetoothGatt,
+        connection: Connection?,
+        connectedDeferred: CompletableDeferred<Boolean>,
+    ) {
+        val characteristic = gatt.getService(BleConstants.SERVICE_UUID)
+            ?.getCharacteristic(BleConstants.NOTIFY_CHARACTERISTIC_UUID)
+        if (characteristic == null) {
+            // No notify characteristic (unexpected/older server) -- connection is still usable
+            // for outbound sends, just without a return path on this link.
+            connectedDeferred.takeIf { !it.isCompleted }?.complete(true)
+            return
+        }
+        val subscribed = runCatching { gatt.setCharacteristicNotification(characteristic, true) }
+            .getOrDefault(false)
+        val descriptor = characteristic.getDescriptor(BleConstants.CCCD_UUID)
+        if (!subscribed || descriptor == null) {
+            connectedDeferred.takeIf { !it.isCompleted }?.complete(true)
+            return
+        }
+        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        val wrote = runCatching { gatt.writeDescriptor(descriptor) }.getOrDefault(false)
+        if (!wrote) {
+            connectedDeferred.takeIf { !it.isCompleted }?.complete(true)
+        }
+        // If the write was accepted, onDescriptorWrite completes connectedDeferred instead.
     }
 
     private fun closeConnection(address: String) {

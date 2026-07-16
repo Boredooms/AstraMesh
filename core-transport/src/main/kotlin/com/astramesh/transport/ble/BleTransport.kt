@@ -140,11 +140,27 @@ class BleTransport @Inject constructor(
     }
 
     override suspend fun send(packet: Packet, endpoint: PeerEndpoint): Boolean {
+        // If this peer already has an OPEN connection to our GATT server (they connected to
+        // us first, e.g. to deliver a HELLO), push the reply over that same connection via a
+        // notification instead of opening a second, independent outbound connection. Needing
+        // a second connection -- which itself depends on this side having already scanned and
+        // resolved the peer's MAC address -- was the root cause of handshakes/messages
+        // completing on only one side (see BleGattServer's doc comment).
+        if (gattServer.isConnectedTo(endpoint.address)) {
+            val sent = gattServer.sendTo(endpoint.address, packet)
+            if (sent) return true
+            // Fall through to a fresh outbound connection if the existing inbound link can't
+            // carry the notification (e.g. the peer never subscribed).
+        }
+
         val sent = gattClient.send(
             packet = packet,
             address = endpoint.address,
             onLinkStateChanged = { state ->
                 scope.launch { _events.emit(TransportEvent.LinkStateChanged(endpoint.nodeId, state)) }
+            },
+            onPacketReceived = { received ->
+                scope.launch { _events.emit(TransportEvent.PacketReceived(received, endpoint)) }
             },
         )
         if (!sent) {
