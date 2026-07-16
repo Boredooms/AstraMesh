@@ -16,8 +16,8 @@ delivered via store-and-forward when a recipient is temporarily offline.
 | 0 | Gradle multi-module skeleton, CI, app shell | ✅ builds |
 | 1 | Domain + protocol models + serialization tests | ✅ 17 tests |
 | 2 | Room persistence | ✅ done |
-| 3 | BLE discovery | planned |
-| 4 | Transport abstraction (BLE GATT) | planned |
+| 3 | BLE discovery | ✅ done |
+| 4 | Transport abstraction | ✅ discovery; GATT send stubbed |
 | 5 | Routing / relay / store-and-forward | planned |
 | 6 | Chat UI | planned |
 | 7 | File transfer | planned |
