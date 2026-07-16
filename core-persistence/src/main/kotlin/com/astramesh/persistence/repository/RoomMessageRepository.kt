@@ -29,4 +29,8 @@ class RoomMessageRepository @Inject constructor(
         dao.updateState(packetId, state.name)
 
     override suspend fun pending(): List<Message> = dao.pending().map { it.toMessage() }
+
+    override fun observePendingCount(): Flow<Int> = dao.observePendingCount()
+
+    override suspend fun incrementRetryCount(packetId: String) = dao.incrementRetryCount(packetId)
 }

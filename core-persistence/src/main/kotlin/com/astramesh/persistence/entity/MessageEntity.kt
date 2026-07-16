@@ -22,4 +22,5 @@ data class MessageEntity(
     val outgoing: Boolean,
     val hopCount: Int,
     val replyToId: String? = null,
+    val retryCount: Int = 0,
 )

@@ -32,6 +32,10 @@ dependencies {
     api(project(":core-domain"))
     api(project(":core-protocol"))
     implementation(project(":core-persistence"))
+    implementation(project(":core-mesh"))
+    implementation(project(":core-routing"))
+    implementation(project(":core-transport"))
+    implementation(project(":core-ui"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

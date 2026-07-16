@@ -7,6 +7,7 @@ import com.astramesh.persistence.dao.BroadcastDao
 import com.astramesh.persistence.dao.FileTransferDao
 import com.astramesh.persistence.dao.MessageDao
 import com.astramesh.persistence.dao.NodeDao
+import com.astramesh.persistence.dao.RelayQueueDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -36,4 +37,7 @@ object DatabaseModule {
 
     @Provides
     fun provideFileTransferDao(db: AstraMeshDatabase): FileTransferDao = db.fileTransferDao()
+
+    @Provides
+    fun provideRelayQueueDao(db: AstraMeshDatabase): RelayQueueDao = db.relayQueueDao()
 }

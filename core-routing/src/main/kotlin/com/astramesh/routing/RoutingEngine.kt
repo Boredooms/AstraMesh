@@ -31,4 +31,7 @@ interface RoutingEngine {
      * The engine also updates its dedup cache as a side effect.
      */
     fun route(incoming: Packet, context: RoutingContext): RoutingDecision
+
+    /** Current dedup cache size, surfaced for diagnostics (docs/protocol.md §22, Settings). */
+    val dedupCacheSize: Int
 }

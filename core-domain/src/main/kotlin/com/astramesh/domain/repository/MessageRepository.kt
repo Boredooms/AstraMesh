@@ -24,4 +24,10 @@ interface MessageRepository {
 
     /** Messages awaiting delivery, for the store-and-forward retry loop. */
     suspend fun pending(): List<Message>
+
+    /** Reactive count of pending/sent/relayed (not yet terminal) messages, for diagnostics. */
+    fun observePendingCount(): Flow<Int>
+
+    /** Bumps the store-and-forward retry counter for a message that failed to send again. */
+    suspend fun incrementRetryCount(packetId: String)
 }

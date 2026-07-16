@@ -19,7 +19,8 @@ delivered via store-and-forward when a recipient is temporarily offline.
 | 3 | BLE discovery | ✅ done |
 | 4 | Transport abstraction | ✅ discovery; GATT send stubbed |
 | 5 | Routing / relay / store-and-forward | ✅ 3 mesh integration tests |
-| 6 | Chat UI | ✅ conversation list + thread, real send/receive |
+| 6 | Chat UI | ✅ conversation list + thread + peer picker + diagnostics |
+| 6.1 | End-to-end messaging demo (handshake, ACK, store-and-forward, relay) | ✅ 9 mesh integration tests |
 | 7 | File transfer | planned |
 | 8 | Emergency broadcast | planned |
 | 9 | Optional PC companion | planned |

@@ -18,4 +18,6 @@ data class Message(
     val outgoing: Boolean,
     val hopCount: Int = 0,
     val replyToId: String? = null,
+    /** Store-and-forward retry attempts so far (docs/routing.md §6, docs/protocol.md §15). */
+    val retryCount: Int = 0,
 )

@@ -34,4 +34,10 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE state IN ('PENDING', 'SENT', 'RELAYED') ORDER BY timestamp ASC")
     suspend fun pending(): List<MessageEntity>
+
+    @Query("SELECT COUNT(*) FROM messages WHERE state IN ('PENDING', 'SENT', 'RELAYED')")
+    fun observePendingCount(): Flow<Int>
+
+    @Query("UPDATE messages SET retryCount = retryCount + 1 WHERE packetId = :packetId")
+    suspend fun incrementRetryCount(packetId: String)
 }

@@ -693,6 +693,31 @@ The architecture is correct only if the following are true:
 
 ---
 
+## 21.1 Milestone 2 Implementation Notes
+
+The end-to-end messaging demo (Chat UI Phase 4, Milestone 2) implemented the previously-designed
+handshake and ACK flows described in §12 and §14:
+
+- **Handshake**: `MeshCoordinator.connectTo(nodeId)` sends a `HANDSHAKE` packet (HELLO) carrying
+  this node's public key; the receiver replies with its own handshake (HELLO_ACK) and both
+  sides mark the session `SessionState.ACTIVE`. This is explicit (triggered by opening a chat
+  thread or picking a peer), not automatic on radio discovery — radio-level "I can hear this
+  device" and mesh-level "I have a session with this device" are deliberately kept distinct so
+  the routing graph reflects real reachability policy, not raw signal range.
+- **ACK**: delivering a `CHAT` packet locally now triggers an encrypted `ACK` packet back to the
+  sender; the sender transitions `SENT -> DELIVERED` only once that ACK is received and
+  decrypted, not merely once the local send call returns.
+- **Store-and-forward**: a new `core-domain` interface `RelayQueueRepository` (Room-backed in
+  `core-persistence` as `RoomRelayQueueRepository`, table `relay_queue`) holds packets a node is
+  relaying for others but has no current route for — still encrypted, since a relay never
+  decrypts. `MeshCoordinator.retryRelayQueue()` / `retryPendingMessages()` drain both this queue
+  and the sender's own pending messages whenever a peer becomes reachable again. See
+  [`docs/store-forward-flow.md`](store-forward-flow.md) and
+  [`docs/demo-relay-flow.md`](demo-relay-flow.md) for full sequence diagrams.
+- **Diagnostics**: `core-mesh`'s `PacketCounters` (chat/ACK/handshake/relay counts) and
+  `RoutingEngine.dedupCacheSize` are surfaced in a new Settings → Diagnostics screen
+  (`feature-settings`), alongside the live peer/route table.
+
 ## 22. One-Line Summary
 
 AstraMesh is a phone-first offline mesh network where Android devices discover each other, exchange encrypted packets, relay messages hop by hop, store data locally, and optionally surface the same network state on a desktop companion and promotional website.

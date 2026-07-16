@@ -11,6 +11,7 @@ import com.astramesh.security.KeyExchange
 import com.astramesh.security.KeyPairMaterial
 import com.astramesh.transport.LoopbackTransport
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -37,11 +38,19 @@ class MeshCoordinatorTest {
         val messages: FakeMessageRepository,
         val peers: FakePeerRepository,
         val coordinator: MeshCoordinator,
-    )
+    ) {
+        fun identityNode(): Node = Node(
+            nodeId = id, deviceName = id, platformType = PlatformType.ANDROID,
+            publicKey = keys.publicKey, keyFingerprint = keys.fingerprint,
+            capabilities = setOf(Capability.CHAT, Capability.RELAY), lastSeen = 0,
+        )
+    }
 
     private fun node(
         id: String,
         bus: LoopbackTransport.Bus,
+        maxRetries: Int = 5,
+        relayQueue: FakeRelayQueueRepository? = null,
     ): TestNode {
         val keys = KeyExchange.generateKeyPair()
         val self = Node(
@@ -59,7 +68,9 @@ class MeshCoordinatorTest {
             peers = peers,
             identity = FakeIdentity(id, self, keys.privateKey),
             sessionKeys = SessionKeyManager(keys.privateKey),
+            relayQueue = relayQueue,
             clock = { 1_000L },
+            maxRetries = maxRetries,
         )
         return TestNode(id, keys, transport, messages, peers, coordinator)
     }
@@ -87,13 +98,21 @@ class MeshCoordinatorTest {
         runCurrent()
 
         a.coordinator.sendChat("node-b", "hello bob")
-        runCurrent()
+        runCurrent() // B receives CHAT, persists, sends ACK back
 
         val received = b.messages.snapshot().firstOrNull { !it.outgoing }
         assertTrue("B should have received the message", received != null)
         assertEquals("hello bob", received!!.text)
         assertEquals(DeliveryState.DELIVERED, received.state)
         assertEquals("node-a", received.senderId)
+
+        runCurrent() // A receives the ACK
+        val sent = a.messages.snapshot().first { it.outgoing }
+        assertEquals(
+            "A's own message should be DELIVERED once B's ACK arrives",
+            DeliveryState.DELIVERED,
+            sent.state,
+        )
     }
 
     @Test
@@ -138,6 +157,188 @@ class MeshCoordinatorTest {
         assertEquals("hello carol", atC!!.text)
         assertEquals("node-a", atC.senderId)
         assertTrue("message should show it was relayed (hopCount>0)", atC.hopCount >= 1)
+    }
+
+    @Test
+    fun handshake_establishesActiveSession_beforeFirstMessage() = runTest {
+        val bus = LoopbackTransport.Bus()
+        val a = node("node-a", bus)
+        val b = node("node-b", bus)
+
+        a.transport.start("node-a"); b.transport.start("node-b")
+        a.coordinator.start(backgroundScope); b.coordinator.start(backgroundScope)
+        runCurrent()
+
+        // Radio-level discovery alone must NOT create a session (docs/protocol.md §11):
+        // no knows() was called, so neither side should show an ACTIVE peer yet.
+        assertTrue(
+            "no session should exist before any handshake",
+            a.peers.observePeers().first().none { it.isConnected },
+        )
+
+        // User opens a chat with B: explicit handshake (HELLO / HELLO_ACK).
+        a.coordinator.connectTo("node-b")
+        runCurrent() // B receives HELLO, marks A ACTIVE, replies with HELLO_ACK
+        runCurrent() // A receives HELLO_ACK, marks B ACTIVE
+
+        val aSeesB = a.peers.observePeers().first().first { it.nodeId == "node-b" }
+        val bSeesA = b.peers.observePeers().first().first { it.nodeId == "node-a" }
+        assertTrue("A should have an ACTIVE session with B", aSeesB.isConnected)
+        assertTrue("B should have an ACTIVE session with A", bSeesA.isConnected)
+        assertEquals(a.keys.publicKey, bSeesA.node.publicKey)
+        assertEquals(b.keys.publicKey, aSeesB.node.publicKey)
+
+        // Now a real chat message should flow using the keys learned during the handshake.
+        a.coordinator.sendChat("node-b", "post-handshake hello")
+        runCurrent()
+        val received = b.messages.snapshot().firstOrNull { !it.outgoing }
+        assertEquals("post-handshake hello", received?.text)
+    }
+
+    @Test
+    fun pendingMessage_marksFailed_afterExceedingRetryBudget() = runTest {
+        val bus = LoopbackTransport.Bus()
+        val a = node("node-a", bus, maxRetries = 2)
+        val b = node("node-b", bus)
+        a.transport.start("node-a") // B never starts: unreachable for the whole test
+        a.knows(b)
+        a.coordinator.start(backgroundScope)
+        runCurrent()
+
+        val sentMsg = a.coordinator.sendChat("node-b", "into the void")
+        assertEquals(DeliveryState.PENDING, sentMsg?.state) // no route: dispatch() returns false
+
+        repeat(3) { a.coordinator.retryPendingMessages() }
+
+        val stored = a.messages.snapshot().first { it.outgoing }
+        assertEquals(DeliveryState.FAILED, stored.state)
+    }
+
+    @Test
+    fun restart_messagesPersistAndMessagingContinues() = runTest {
+        val bus = LoopbackTransport.Bus()
+        val a = node("node-a", bus)
+        val b = node("node-b", bus)
+        a.transport.start("node-a"); b.transport.start("node-b")
+        a.knows(b); b.knows(a)
+        a.coordinator.start(backgroundScope); b.coordinator.start(backgroundScope)
+        runCurrent()
+
+        a.coordinator.sendChat("node-b", "before restart")
+        runCurrent()
+        assertEquals(1, b.messages.snapshot().count { !it.outgoing })
+
+        // Simulate an app restart on B: the transport and MeshCoordinator are recreated (as
+        // they would be by a fresh process), but the message/peer repositories are the SAME
+        // instances — standing in for Room persistence surviving the process restart
+        // (docs/workflow.md §13, verification requirement in the milestone spec).
+        val restartedTransport = LoopbackTransport(bus)
+        val restartedCoordinator = MeshCoordinator(
+            transport = restartedTransport,
+            routing = EpidemicRoutingEngine(),
+            messages = b.messages,
+            peers = b.peers,
+            identity = FakeIdentity("node-b", b.identityNode(), b.keys.privateKey),
+            sessionKeys = SessionKeyManager(b.keys.privateKey),
+            clock = { 1_000L },
+        )
+        restartedTransport.start("node-b")
+        restartedCoordinator.start(backgroundScope)
+        runCurrent()
+
+        // Old message is still there after "restart".
+        assertEquals(1, b.messages.snapshot().count { !it.outgoing })
+
+        // Messaging continues normally post-restart.
+        a.coordinator.sendChat("node-b", "after restart")
+        runCurrent()
+        assertEquals(2, b.messages.snapshot().count { !it.outgoing })
+        assertTrue(b.messages.snapshot().any { !it.outgoing && it.text == "after restart" })
+    }
+
+    @Test
+    fun storeAndForward_relayQueuesForOfflinePeer_thenDeliversOnReturn() = runTest {
+        val bus = LoopbackTransport.Bus()
+        val relayQueueOnB = FakeRelayQueueRepository()
+        val a = node("node-a", bus)
+        val b = node("node-b", bus, relayQueue = relayQueueOnB)
+        val c = node("node-c", bus)
+
+        // A and C are never directly connected; B is the only relay. C starts OFFLINE.
+        a.knows(b)
+        b.knows(a); b.knows(c)
+        c.knows(a); c.knows(b)
+        a.peers.upsertNode(
+            Node(
+                nodeId = c.id, deviceName = c.id, platformType = PlatformType.ANDROID,
+                publicKey = c.keys.publicKey, keyFingerprint = c.keys.fingerprint,
+                capabilities = setOf(Capability.CHAT, Capability.RELAY), lastSeen = 0,
+            )
+        )
+
+        a.transport.start("node-a"); b.transport.start("node-b")
+        // c.transport is intentionally NOT started yet — C is offline.
+        a.coordinator.start(backgroundScope); b.coordinator.start(backgroundScope)
+        runCurrent()
+
+        a.coordinator.sendChat("node-c", "are you there?")
+        runCurrent() // B receives it, has no route to C, queues it for store-and-forward
+
+        assertEquals(0, c.messages.snapshot().size)
+        assertEquals(
+            "B should be holding the packet in its relay queue while C is offline",
+            1,
+            relayQueueOnB.all().size,
+        )
+
+        // C comes back online. Subscribe C's collector to its transport events FIRST and let
+        // it actually start collecting (runCurrent) before announcing C's presence — otherwise
+        // B could forward to C before C's collector coroutine has subscribed to the underlying
+        // SharedFlow, and the emission would be missed (no replay for late subscribers; the
+        // same class of bug documented in docs/RCA-directMessage-test-failure.md).
+        c.coordinator.start(backgroundScope)
+        runCurrent()
+        c.transport.start("node-c")
+        runCurrent() // B observes C's PeerDiscovered event, drains queue, forwards to C
+        runCurrent() // C processes the forwarded CHAT packet
+
+        val atC = c.messages.snapshot().firstOrNull { !it.outgoing }
+        assertTrue("C should eventually receive the stored message", atC != null)
+        assertEquals("are you there?", atC!!.text)
+        assertEquals(0, relayQueueOnB.all().size)
+    }
+
+    @Test
+    fun relayNode_cannotDecryptPayload_itOnlyForwardsOpaqueBytes() = runTest {
+        val bus = LoopbackTransport.Bus()
+        val a = node("node-a", bus)
+        val b = node("node-b", bus)
+        val c = node("node-c", bus)
+        a.knows(b); b.knows(a); b.knows(c); c.knows(a); c.knows(b)
+        a.peers.upsertNode(
+            Node(
+                nodeId = c.id, deviceName = c.id, platformType = PlatformType.ANDROID,
+                publicKey = c.keys.publicKey, keyFingerprint = c.keys.fingerprint,
+                capabilities = setOf(Capability.CHAT, Capability.RELAY), lastSeen = 0,
+            )
+        )
+        a.transport.start("node-a"); b.transport.start("node-b"); c.transport.start("node-c")
+        a.coordinator.start(backgroundScope)
+        b.coordinator.start(backgroundScope)
+        c.coordinator.start(backgroundScope)
+        runCurrent()
+
+        a.coordinator.sendChat("node-c", "top secret")
+        runCurrent()
+        runCurrent()
+
+        // B relayed the packet but is not the addressee, so MeshCoordinator never calls
+        // openPayload for B — B's own message store must never contain the plaintext.
+        assertTrue(
+            "the relay node must never persist the message content it forwarded",
+            b.messages.snapshot().none { it.text == "top secret" },
+        )
+        assertTrue(c.messages.snapshot().any { it.text == "top secret" })
     }
 
     @Test

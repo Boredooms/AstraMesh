@@ -23,6 +23,8 @@ class EpidemicRoutingEngine(
     private val dedupCache: DedupCache = InMemoryDedupCache(),
 ) : RoutingEngine {
 
+    override val dedupCacheSize: Int get() = dedupCache.size
+
     override fun route(incoming: Packet, context: RoutingContext): RoutingDecision {
         if (!ProtocolVersion.isSupported(incoming.protocolVersion)) {
             return RoutingDecision.Drop(DropReason.UNSUPPORTED_VERSION)

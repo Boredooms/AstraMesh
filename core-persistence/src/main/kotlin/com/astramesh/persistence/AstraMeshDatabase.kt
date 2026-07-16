@@ -6,10 +6,12 @@ import com.astramesh.persistence.dao.BroadcastDao
 import com.astramesh.persistence.dao.FileTransferDao
 import com.astramesh.persistence.dao.MessageDao
 import com.astramesh.persistence.dao.NodeDao
+import com.astramesh.persistence.dao.RelayQueueDao
 import com.astramesh.persistence.entity.BroadcastEntity
 import com.astramesh.persistence.entity.FileTransferEntity
 import com.astramesh.persistence.entity.MessageEntity
 import com.astramesh.persistence.entity.NodeEntity
+import com.astramesh.persistence.entity.RelayQueueEntity
 
 /**
  * Local Room database — the source of truth for the mesh (docs/workflow.md §13).
@@ -21,8 +23,9 @@ import com.astramesh.persistence.entity.NodeEntity
         MessageEntity::class,
         BroadcastEntity::class,
         FileTransferEntity::class,
+        RelayQueueEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AstraMeshDatabase : RoomDatabase() {
@@ -30,6 +33,7 @@ abstract class AstraMeshDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun broadcastDao(): BroadcastDao
     abstract fun fileTransferDao(): FileTransferDao
+    abstract fun relayQueueDao(): RelayQueueDao
 
     companion object {
         const val NAME = "astramesh.db"

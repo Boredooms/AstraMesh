@@ -3,7 +3,9 @@ package com.astramesh.mesh.di
 import com.astramesh.domain.identity.NodeIdentityProvider
 import com.astramesh.domain.repository.MessageRepository
 import com.astramesh.domain.repository.PeerRepository
+import com.astramesh.domain.repository.RelayQueueRepository
 import com.astramesh.mesh.MeshCoordinator
+import com.astramesh.mesh.PacketCounters
 import com.astramesh.mesh.SessionKeyManager
 import com.astramesh.routing.EpidemicRoutingEngine
 import com.astramesh.routing.RoutingEngine
@@ -39,6 +41,10 @@ object MeshModule {
 
     @Provides
     @Singleton
+    fun providePacketCounters(): PacketCounters = PacketCounters()
+
+    @Provides
+    @Singleton
     @MeshScope
     fun provideMeshScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -58,8 +64,10 @@ object MeshModule {
         routing: RoutingEngine,
         messages: MessageRepository,
         peers: PeerRepository,
+        relayQueue: RelayQueueRepository,
         identity: NodeIdentityProvider,
         sessionKeys: SessionKeyManager,
+        counters: PacketCounters,
         @MeshScope scope: CoroutineScope,
     ): MeshCoordinator {
         val coordinator = MeshCoordinator(
@@ -69,6 +77,8 @@ object MeshModule {
             peers = peers,
             identity = identity,
             sessionKeys = sessionKeys,
+            relayQueue = relayQueue,
+            counters = counters,
         )
         coordinator.start(scope)
         return coordinator

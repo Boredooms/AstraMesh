@@ -4,10 +4,12 @@ import com.astramesh.domain.repository.BroadcastRepository
 import com.astramesh.domain.repository.FileTransferRepository
 import com.astramesh.domain.repository.MessageRepository
 import com.astramesh.domain.repository.PeerRepository
+import com.astramesh.domain.repository.RelayQueueRepository
 import com.astramesh.persistence.repository.RoomBroadcastRepository
 import com.astramesh.persistence.repository.RoomFileTransferRepository
 import com.astramesh.persistence.repository.RoomMessageRepository
 import com.astramesh.persistence.repository.RoomPeerRepository
+import com.astramesh.persistence.repository.RoomRelayQueueRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -34,4 +36,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindFileTransferRepository(impl: RoomFileTransferRepository): FileTransferRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindRelayQueueRepository(impl: RoomRelayQueueRepository): RelayQueueRepository
 }

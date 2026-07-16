@@ -86,6 +86,7 @@ internal object Mappers {
         outgoing = outgoing,
         hopCount = hopCount,
         replyToId = replyToId,
+        retryCount = retryCount,
     )
 
     fun Message.toEntity(): MessageEntity {
@@ -102,6 +103,7 @@ internal object Mappers {
             outgoing = outgoing,
             hopCount = hopCount,
             replyToId = replyToId,
+            retryCount = retryCount,
         )
     }
 

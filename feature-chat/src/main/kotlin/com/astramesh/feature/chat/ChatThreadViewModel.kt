@@ -40,6 +40,12 @@ class ChatThreadViewModel @Inject constructor(
     private val peerId: String = checkNotNull(savedStateHandle["peerId"]) { "peerId is required" }
     private val draft = MutableStateFlow("")
 
+    init {
+        // Opening a thread is the user's explicit intent to talk to this peer — establish a
+        // secure session if we don't have one yet (docs/protocol.md §11, docs/workflow.md §6).
+        viewModelScope.launch { coordinator.connectTo(peerId) }
+    }
+
     val uiState: StateFlow<ChatThreadUiState> =
         combine(
             messages.observeConversation(peerId),

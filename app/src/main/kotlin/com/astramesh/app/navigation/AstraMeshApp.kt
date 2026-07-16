@@ -20,8 +20,10 @@ import androidx.navigation.navArgument
 import com.astramesh.feature.broadcast.BroadcastScreen
 import com.astramesh.feature.chat.ChatListScreen
 import com.astramesh.feature.chat.ChatThreadScreen
+import com.astramesh.feature.chat.PeerPickerScreen
 import com.astramesh.feature.discovery.DiscoveryScreen
 import com.astramesh.feature.files.FilesScreen
+import com.astramesh.feature.settings.DiagnosticsScreen
 import com.astramesh.feature.settings.SettingsScreen
 
 /**
@@ -68,6 +70,17 @@ fun AstraMeshApp() {
                     onOpenConversation = { peerId ->
                         navController.navigate("chat/$peerId")
                     },
+                    onNewChat = { navController.navigate("peer-picker") },
+                )
+            }
+            composable("peer-picker") {
+                PeerPickerScreen(
+                    onBack = { navController.popBackStack() },
+                    onPeerSelected = { peerId ->
+                        navController.navigate("chat/$peerId") {
+                            popUpTo("peer-picker") { inclusive = true }
+                        }
+                    },
                 )
             }
             composable(
@@ -78,7 +91,12 @@ fun AstraMeshApp() {
             }
             composable(AstraDestination.Files.route) { FilesScreen() }
             composable(AstraDestination.Broadcast.route) { BroadcastScreen() }
-            composable(AstraDestination.Settings.route) { SettingsScreen() }
+            composable(AstraDestination.Settings.route) {
+                SettingsScreen(onOpenDiagnostics = { navController.navigate("diagnostics") })
+            }
+            composable("diagnostics") {
+                DiagnosticsScreen(onBack = { navController.popBackStack() })
+            }
         }
     }
 }
