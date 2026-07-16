@@ -35,6 +35,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
       - name: Run JVM unit tests
         run: ./gradlew test --stacktrace
 
@@ -61,6 +64,9 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure gradlew is executable
+        run: chmod +x ./gradlew
 
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
