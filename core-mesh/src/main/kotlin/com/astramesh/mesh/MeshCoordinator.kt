@@ -429,20 +429,44 @@ class MeshCoordinator(
         }
     }
 
-    /** Sends [packet] toward its destination via the best available route. */
+    /**
+     * Sends a LOCALLY ORIGINATED [packet] (this node's own chat/handshake/ACK) toward its
+     * destination.
+     *
+     * Deliberately does NOT go through [RoutingEngine.route]. That function's dedup cache
+     * exists to stop a RELAY from re-processing a packet it already forwarded (loop
+     * prevention for traffic passing THROUGH this node) -- it has nothing to do with this
+     * node's own outgoing traffic. But [routing.route] unconditionally calls
+     * [DedupCache.markSeen] as its very first step for ANY packet passed to it, originated or
+     * not. Every call site here (`sendChat`, and critically `retryPendingMessages`, which
+     * calls [dispatch] again with the SAME packetId for a message that hasn't been ACKed
+     * yet -- `MessageDao.pending()` includes the SENT state, not just PENDING) used to route
+     * through [routing.route]. That meant: first dispatch marks the packetId seen and may
+     * genuinely succeed; a LATER retry of that exact same packetId (still SENT, awaiting
+     * ACK, and therefore still "pending" for retry purposes) then gets seen as a "duplicate"
+     * of itself and is unconditionally Drop-ped -- reporting failure regardless of whether
+     * the transport would have succeeded, and eventually flipping an already-delivered
+     * message to FAILED once the retry budget ran out. Bypassing dedup here for
+     * self-originated dispatch fixes that.
+     *
+     * Also deliberately does NOT hop-advance ([Packet.relayed]) the packet -- that increments
+     * [Packet.hopCount], which is meant to reflect real intermediate relays a packet passed
+     * through. The old code called it even on this node's very first, direct send of its own
+     * message, so a message delivered in a single direct hop arrived on the receiving end
+     * showing hopCount=1 -- displayed in the UI as "relayed x1" despite no relay ever being
+     * involved. An originated packet starts at hopCount=0 and should stay there until an
+     * actual intermediate node forwards it (see [handleIncoming]'s ForwardDirect/Relay
+     * branches, which correctly do hop-advance -- that code path handles packets received
+     * FROM elsewhere, which is the legitimate use of both dedup and hop-advance).
+     */
     private suspend fun dispatch(packet: Packet): Boolean {
-        val context = RoutingContext(
-            localNodeId = identity.nodeId(),
-            directPeers = directPeerIds(),
-            relayPeers = relayPeerIds(),
-            now = clock(),
-        )
-        return when (val decision = routing.route(packet, context)) {
-            is RoutingDecision.ForwardDirect -> sendTo(decision.packet, decision.nextHop)
-            is RoutingDecision.Relay ->
-                decision.neighbors.map { sendTo(decision.packet, it) }.any { it }
-            else -> false
+        val direct = directPeerIds()
+        if (packet.receiverId in direct) {
+            return sendTo(packet, packet.receiverId)
         }
+        val relay = relayPeerIds()
+        if (relay.isEmpty()) return false
+        return relay.map { sendTo(packet, it) }.any { it }
     }
 
     private suspend fun sendTo(packet: Packet, nodeId: String): Boolean {
