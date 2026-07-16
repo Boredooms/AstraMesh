@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.astramesh.domain.model.Peer
+import com.astramesh.domain.model.SessionState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -199,7 +200,7 @@ private fun PeerCard(peer: Peer) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SignalDot(peer.signalStrength)
+            OnlineDot(peer.sessionState)
             Column(modifier = Modifier.weight(1f)) {
                 Text(peer.node.deviceName, style = MaterialTheme.typography.titleSmall)
                 Text(
@@ -209,31 +210,48 @@ private fun PeerCard(peer: Peer) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            SessionChip(peer.sessionState.name)
+            SessionChip(peer.sessionState)
         }
     }
 }
 
+/**
+ * A dot indicating whether a peer is currently reachable over an ACTIVE session, rather than
+ * raw radio signal strength -- a peer can be nearby (strong RSSI) but not ACTIVE (no completed
+ * handshake yet, or a since-dropped GATT link), which is precisely the "discovered but not
+ * really online" state the user needs to see distinctly.
+ */
 @Composable
-private fun SignalDot(strength: Int?) {
-    val color = when {
-        strength == null -> MaterialTheme.colorScheme.onSurfaceVariant
-        strength > -60 -> MaterialTheme.colorScheme.primary
-        strength > -80 -> MaterialTheme.colorScheme.onSurface
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+private fun OnlineDot(state: SessionState) {
+    val color = when (state) {
+        SessionState.ACTIVE -> MaterialTheme.colorScheme.primary
+        SessionState.HANDSHAKING, SessionState.SECURE, SessionState.RETRYING ->
+            MaterialTheme.colorScheme.onSurface
+        SessionState.DISCOVERED, SessionState.INTERRUPTED, SessionState.CLOSED ->
+            MaterialTheme.colorScheme.onSurfaceVariant
     }
     Box(modifier = Modifier.size(12.dp).clip(CircleShape)) {
         Surface(color = color, modifier = Modifier.fillMaxSize()) {}
     }
 }
 
+/** Shows a plain-language online/offline label plus the underlying session state. */
 @Composable
-private fun SessionChip(label: String) {
+private fun SessionChip(state: SessionState) {
+    val (label, color) = when (state) {
+        SessionState.ACTIVE -> "Online" to MaterialTheme.colorScheme.primary
+        SessionState.HANDSHAKING -> "Connecting…" to MaterialTheme.colorScheme.onSurface
+        SessionState.SECURE -> "Securing…" to MaterialTheme.colorScheme.onSurface
+        SessionState.RETRYING -> "Reconnecting…" to MaterialTheme.colorScheme.onSurface
+        SessionState.DISCOVERED -> "Nearby" to MaterialTheme.colorScheme.onSurfaceVariant
+        SessionState.INTERRUPTED -> "Offline" to MaterialTheme.colorScheme.onSurfaceVariant
+        SessionState.CLOSED -> "Offline" to MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.small) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = color,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }

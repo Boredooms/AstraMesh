@@ -24,6 +24,7 @@ import com.astramesh.routing.RoutingDecision
 import com.astramesh.routing.RoutingEngine
 import com.astramesh.security.KeyExchange
 import com.astramesh.security.MessageCipher
+import com.astramesh.transport.LinkState
 import com.astramesh.transport.PeerEndpoint
 import com.astramesh.transport.Transport
 import com.astramesh.transport.TransportEvent
@@ -76,6 +77,11 @@ class MeshCoordinator(
                     // reachable through a relay. We DO use rediscovery to retry queued work,
                     // since that's a real reconnect signal for already-known peers/relays.
                     is TransportEvent.PeerDiscovered -> onPeerReachable(event.endpoint.nodeId)
+                    // A GATT link dropped or failed to connect: reflect this in the peer's
+                    // session state so the UI can show "offline" instead of a stale ACTIVE
+                    // chip from the last successful handshake. Does not remove the peer --
+                    // PeerLost (radio-level, out of range) is the signal for that.
+                    is TransportEvent.LinkStateChanged -> onLinkStateChanged(event)
                     else -> Unit
                 }
             }
@@ -268,6 +274,20 @@ class MeshCoordinator(
     private suspend fun onPeerReachable(@Suppress("UNUSED_PARAMETER") nodeId: String) {
         retryPendingMessages()
         retryRelayQueue()
+    }
+
+    /**
+     * A transport-level link to a peer dropped or failed to (re)connect. An ACTIVE session
+     * whose underlying link just went away is no longer really active — mark it INTERRUPTED
+     * so the UI reflects "offline" instead of a stale ACTIVE chip, without discarding the
+     * session (public keys / packet counters), since a link drop is expected to be transient
+     * (e.g. brief BLE range loss) rather than the peer being gone for good.
+     */
+    private suspend fun onLinkStateChanged(event: TransportEvent.LinkStateChanged) {
+        if (event.state != LinkState.DISCONNECTED && event.state != LinkState.INTERRUPTED) return
+        val peer = peers.observePeers().first().firstOrNull { it.nodeId == event.nodeId } ?: return
+        if (peer.sessionState == SessionState.CLOSED) return
+        peers.upsertPeer(peer.copy(sessionState = SessionState.INTERRUPTED))
     }
 
     /** Processes an incoming packet through the routing engine and acts on the decision. */

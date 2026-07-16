@@ -23,10 +23,12 @@ import javax.inject.Inject
 /**
  * Bluetooth LE implementation of [Transport] (docs/architecture.md §9).
  *
- * Discovery is fully implemented: this transport advertises the local node and scans for peers,
- * emitting [TransportEvent.PeerDiscovered] as nodes appear. Connected GATT packet exchange is
- * the deeper part of Stage 4 and is marked below as an explicit future stub — it does not block
- * discovery, which is the Stage 3 deliverable.
+ * Discovery, packet send, and packet receive are all implemented. Every node runs a
+ * [BleGattServer] (receiving role) and a [BleGattClient] (sending role) simultaneously --
+ * see [BleGattServer]'s doc comment for why there's no fixed central/peripheral split.
+ * [send] opens/reuses a GATT client connection to the target address, fragments the
+ * JSON-encoded packet to the negotiated MTU, and returns true only once every fragment is
+ * actually written and acknowledged by the remote stack.
  */
 class BleTransport @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -36,6 +38,8 @@ class BleTransport @Inject constructor(
 
     private val advertiser = BleAdvertiser(context)
     private val scanner = BleScanner(context)
+    private val gattServer = BleGattServer(context)
+    private val gattClient = BleGattClient(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _events = MutableSharedFlow<TransportEvent>(extraBufferCapacity = 64)
@@ -51,6 +55,15 @@ class BleTransport @Inject constructor(
     override suspend fun start(selfNodeId: String) {
         this.selfNodeId = selfNodeId
         startRadios(selfNodeId)
+        gattServer.start(
+            onPacket = { packet, endpoint ->
+                scope.launch { _events.emit(TransportEvent.PacketReceived(packet, endpoint)) }
+            },
+            endpointFor = { address -> endpoints.values.firstOrNull { it.address == address } },
+            onError = { message ->
+                scope.launch { _events.emit(TransportEvent.Error(message)) }
+            },
+        )
         maintenanceJob?.cancel()
         maintenanceJob = scope.launch { runMaintenanceLoop() }
     }
@@ -119,19 +132,25 @@ class BleTransport @Inject constructor(
         maintenanceJob = null
         scanner.stop()
         advertiser.stop()
+        gattServer.stop()
+        gattClient.stopAll()
         endpoints.clear()
         lastSeenAt.clear()
         selfNodeId = null
     }
 
     override suspend fun send(packet: Packet, endpoint: PeerEndpoint): Boolean {
-        // FUTURE STUB (Stage 4): open a GATT connection to endpoint.address, write the packet
-        // bytes to BleConstants.PACKET_CHARACTERISTIC_UUID with fragmentation to TARGET_MTU, and
-        // await the notification-based ACK. Discovery (Stage 3) does not depend on this path.
-        _events.emit(
-            TransportEvent.Error("BLE GATT send not yet implemented (Stage 4)")
+        val sent = gattClient.send(
+            packet = packet,
+            address = endpoint.address,
+            onLinkStateChanged = { state ->
+                scope.launch { _events.emit(TransportEvent.LinkStateChanged(endpoint.nodeId, state)) }
+            },
         )
-        return false
+        if (!sent) {
+            _events.emit(TransportEvent.Error("BLE send to ${endpoint.nodeId} failed"))
+        }
+        return sent
     }
 
     override fun knownEndpoints(): List<PeerEndpoint> = endpoints.values.toList()
