@@ -57,8 +57,30 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        # softprops/action-gh-release makes a single attempt against the GitHub API and fails
+        # the whole job on any error, including transient ones -- e.g. a brief 503 from
+        # GitHub's own API returning its generic HTML error page instead of JSON ("Unexpected
+        # error fetching GitHub release ... HttpError: <!DOCTYPE html>"), which has happened
+        # here even though githubstatus.com reported all systems operational at the time.
+        # That's a genuine transient blip, not a config or code problem, so retry a few times
+        # with backoff before actually failing the job -- the APK build/test/upload-artifact
+        # steps above already succeeded and shouldn't need to be redone just because GitHub's
+        # release API hiccuped once.
+        uses: nick-fields/retry@v3
         with:
-          files: release-out/*.apk
-          generate_release_notes: true
-          name: AstraMesh ${{ github.ref_name }}
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 20
+          command: |
+            # Idempotent: if a prior attempt this run partially succeeded (release created but
+            # asset upload failed before a retry), delete it first so `release create` doesn't
+            # fail with "release already exists" on the next attempt.
+            gh release delete "${{ github.ref_name }}" \
+              --repo "${{ github.repository }}" --yes 2>/dev/null || true
+            gh release create "${{ github.ref_name }}" \
+              --repo "${{ github.repository }}" \
+              --title "AstraMesh ${{ github.ref_name }}" \
+              --generate-notes \
+              release-out/*.apk
+        env:
+          GH_TOKEN: ${{ github.token }}
