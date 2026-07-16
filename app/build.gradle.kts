@@ -23,6 +23,24 @@ android {
         }
     }
 
+    // A fixed, project-committed debug keystore (app/debug.keystore) instead of relying on
+    // the auto-generated one at ~/.android/debug.keystore. That auto-generated keystore is
+    // per-machine, and every GitHub Actions run is a fresh, ephemeral machine -- so each CI
+    // build was silently signed with a DIFFERENT certificate every time. Android refuses to
+    // install an APK over an existing app unless the signing certificate matches exactly,
+    // which is exactly why installing a newer release failed with "package conflicts with an
+    // existing package": v0.1.0 and v0.1.1 had the same applicationId but different, randomly
+    // generated signatures. Using one fixed keystore for every build (local and CI) makes all
+    // debug-signed builds mutually upgradable.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

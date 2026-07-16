@@ -8,6 +8,12 @@ local.properties
 *.apk
 *.aab
 *.keystore
+# EXCEPTION: app/debug.keystore is a fixed, project-committed debug-only keystore (not a real
+# release signing secret) so every build -- local and every fresh CI container alike -- signs
+# with the same certificate. Without this, each CI run auto-generated its own debug keystore,
+# so every release had a different signature and could never be installed as an update over a
+# previous one ("package conflicts with an existing package").
+!app/debug.keystore
 captures/
 .cxx/
 
