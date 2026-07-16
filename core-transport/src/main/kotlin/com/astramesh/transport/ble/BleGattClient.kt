@@ -13,6 +13,7 @@ import com.astramesh.protocol.Packet
 import com.astramesh.protocol.ProtocolJson
 import com.astramesh.transport.LinkState
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
@@ -109,7 +110,17 @@ class BleGattClient(private val context: Context) {
         return withTimeoutOrNull(WRITE_TIMEOUT_MS) { deferred.await() } ?: false
     }
 
-    /** Returns a connected, MTU-negotiated [Connection] for [address], opening one if needed. */
+    /**
+     * Returns a connected, MTU-negotiated [Connection] for [address], opening one if needed.
+     *
+     * Retries the connect attempt up to [CONNECT_ATTEMPTS] times. The very first
+     * `connectGatt()` to a device that was JUST discovered by an active scan very commonly
+     * fails once on real Android hardware (frequently surfaced as GATT error 133,
+     * `GATT_ERROR`) purely from radio/timing contention between the scanner and the new
+     * connection attempt -- not a real, persistent failure. Retrying immediately after
+     * closing the failed [BluetoothGatt] resolves this in the overwhelming majority of cases,
+     * which is why a first-try send failing is not itself a sign anything is broken.
+     */
     private suspend fun obtainConnection(
         address: String,
         onLinkStateChanged: (LinkState) -> Unit,
@@ -119,6 +130,18 @@ class BleGattClient(private val context: Context) {
             closeConnection(address)
         }
 
+        repeat(CONNECT_ATTEMPTS) { attempt ->
+            val connection = attemptConnect(address, onLinkStateChanged)
+            if (connection != null) return connection
+            if (attempt < CONNECT_ATTEMPTS - 1) delay(CONNECT_RETRY_DELAY_MS)
+        }
+        return null
+    }
+
+    private suspend fun attemptConnect(
+        address: String,
+        onLinkStateChanged: (LinkState) -> Unit,
+    ): Connection? {
         val manager = context.getSystemService(BluetoothManager::class.java) ?: return null
         val adapter = manager.adapter?.takeIf { it.isEnabled } ?: return null
         val device = runCatching { adapter.getRemoteDevice(address) }.getOrNull() ?: return null
@@ -212,5 +235,11 @@ class BleGattClient(private val context: Context) {
 
         private const val CONNECT_TIMEOUT_MS = 15_000L
         private const val WRITE_TIMEOUT_MS = 10_000L
+
+        /** Total connectGatt() attempts per send before giving up (see obtainConnection doc). */
+        private const val CONNECT_ATTEMPTS = 3
+
+        /** Delay before retrying a failed connect attempt. */
+        private const val CONNECT_RETRY_DELAY_MS = 800L
     }
 }

@@ -30,9 +30,12 @@ import com.astramesh.transport.Transport
 import com.astramesh.transport.TransportEvent
 import com.astramesh.transport.TransportKind
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
@@ -61,6 +64,14 @@ class MeshCoordinator(
     /** Bounded retry budget before a message/relay packet is marked FAILED/dropped. */
     private val maxRetries: Int = 5,
 ) {
+    private companion object {
+        /** How often the safety-net retry sweep runs (see [start]). */
+        const val RETRY_SWEEP_INTERVAL_MS = 10_000L
+    }
+
+
+    /** NodeIds the local user has expressed intent to talk to but that aren't ACTIVE yet. */
+    private val pendingHandshakes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun start(scope: CoroutineScope) {
         transport.events
@@ -86,6 +97,22 @@ class MeshCoordinator(
                 }
             }
             .launchIn(scope)
+
+        // A peer already known (already DISCOVERED/INTERRUPTED, not freshly (re)discovered)
+        // never triggers onPeerReachable, so a handshake or send that failed on its very first
+        // attempt (e.g. a transient BLE connect failure) would otherwise sit stuck forever with
+        // no automatic recovery until the user manually left and reopened the chat. This loop
+        // is the safety net: it periodically retries pending chat messages, queued relay
+        // packets, and any handshake the user asked for that hasn't completed yet, regardless
+        // of whether a fresh discovery event happened to fire.
+        scope.launch {
+            while (isActive) {
+                delay(RETRY_SWEEP_INTERVAL_MS)
+                retryPendingMessages()
+                retryRelayQueue()
+                retryHandshakes()
+            }
+        }
     }
 
     /**
@@ -97,8 +124,23 @@ class MeshCoordinator(
     suspend fun connectTo(toNodeId: String) {
         val alreadyActive = peers.observePeers().first().any { it.nodeId == toNodeId && it.isConnected }
         if (!alreadyActive) {
+            pendingHandshakes.add(toNodeId)
             sendHandshake(toNodeId)
         }
+    }
+
+    /**
+     * Retries [connectTo] for any peer the user asked to talk to that hasn't reached
+     * [SessionState.ACTIVE] yet. Covers the case where the very first handshake send attempt
+     * failed at the transport level (e.g. a one-off BLE connect failure) and the peer was
+     * already known, so no new [TransportEvent.PeerDiscovered] ever arrives to trigger a
+     * retry via [onPeerReachable].
+     */
+    private suspend fun retryHandshakes() {
+        if (pendingHandshakes.isEmpty()) return
+        val activeIds = peers.observePeers().first().filter { it.isConnected }.map { it.nodeId }.toSet()
+        pendingHandshakes.removeAll(activeIds)
+        pendingHandshakes.forEach { nodeId -> sendHandshake(nodeId) }
     }
 
     /**
@@ -150,6 +192,7 @@ class MeshCoordinator(
             lastSeen = clock(),
         )
         peers.upsertPeer(Peer(node = node, sessionState = SessionState.ACTIVE, signalStrength = null, lastContact = clock()))
+        pendingHandshakes.remove(payload.nodeId)
         counters?.onHandshakeReceived()
 
         // Reply with our own handshake so the initiator also reaches ACTIVE (HELLO_ACK).
