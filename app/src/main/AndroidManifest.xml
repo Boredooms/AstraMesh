@@ -1,8 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Bluetooth LE: primary discovery + transport path -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <!--
+      Bluetooth LE: primary discovery + transport path. neverForLocation on BLUETOOTH_SCAN is
+      a strong, truthful assertion: AstraMesh only ever reads its own service data (a node id)
+      from scan results, never physical location. Without this flag, Android additionally
+      requires ACCESS_FINE_LOCATION to be granted AND the system wide Location toggle to be
+      switched on before scan results are delivered at all, on API 31+, that's true even
+      though location permission itself isn't in BLUETOOTH_SCAN's permission group, which is
+      exactly the "permission granted, Bluetooth on, still 0 peers" failure mode. With
+      neverForLocation set, none of that is required on API 31+.
+    -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
@@ -13,7 +26,11 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
-    <!-- Location required for BLE scan on API < 31 -->
+    <!--
+      Location is still required for BLE scanning on API < 31 (there is no neverForLocation
+      equivalent that far back). Both this permission AND the system Location toggle must be
+      on for scan results to be delivered. See BlePermissions/LocationServicesCheck.
+    -->
     <uses-permission
         android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />

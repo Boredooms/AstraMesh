@@ -1,5 +1,7 @@
 package com.astramesh.feature.discovery
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -16,11 +18,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BluetoothSearching
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -56,15 +60,39 @@ fun DiscoveryScreen(
     // a SecurityException the transport layer swallows (this is why two nearby devices could
     // never see each other: neither side's radio ever actually turned on).
     var hasPermission by remember { mutableStateOf(BlePermissions.allGranted(context)) }
+    var locationOff by remember { mutableStateOf(BlePermissions.locationServicesRequiredButOff(context)) }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
         hasPermission = grants.values.all { it }
-        if (hasPermission) viewModel.startScan()
+        locationOff = BlePermissions.locationServicesRequiredButOff(context)
+        if (hasPermission && !locationOff) viewModel.startScan()
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Nearby Nodes") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Nearby Nodes") },
+                actions = {
+                    // Manual refresh: on API < 31 the OS location toggle can change out from
+                    // under the app, and BLE scan callbacks can silently stop firing on some
+                    // OEM Bluetooth stacks after a while -- restarting the scan is a cheap,
+                    // reliable way to force a fresh look instead of waiting indefinitely.
+                    IconButton(
+                        onClick = {
+                            hasPermission = BlePermissions.allGranted(context)
+                            locationOff = BlePermissions.locationServicesRequiredButOff(context)
+                            if (hasPermission && !locationOff) {
+                                viewModel.stopScan()
+                                viewModel.startScan()
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                    }
+                },
+            )
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -76,10 +104,10 @@ fun DiscoveryScreen(
                 available = state.transportAvailable,
                 peerCount = state.peers.size,
                 onStart = {
-                    if (hasPermission) {
-                        viewModel.startScan()
-                    } else {
+                    if (!hasPermission) {
                         permissionLauncher.launch(BlePermissions.required())
+                    } else if (!locationOff) {
+                        viewModel.startScan()
                     }
                 },
                 onStop = viewModel::stopScan,
@@ -96,15 +124,19 @@ fun DiscoveryScreen(
                 }
             }
 
-            if (!hasPermission) {
-                PermissionNeeded(
+            when {
+                !hasPermission -> PermissionNeeded(
                     modifier = Modifier.fillMaxSize(),
                     onRequest = { permissionLauncher.launch(BlePermissions.required()) },
                 )
-            } else if (state.peers.isEmpty()) {
-                EmptyPeers(scanning = state.scanning, modifier = Modifier.fillMaxSize())
-            } else {
-                LazyColumn(
+                locationOff -> LocationServicesNeeded(
+                    modifier = Modifier.fillMaxSize(),
+                    onOpenSettings = {
+                        context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    },
+                )
+                state.peers.isEmpty() -> EmptyPeers(scanning = state.scanning, modifier = Modifier.fillMaxSize())
+                else -> LazyColumn(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -232,6 +264,37 @@ private fun PermissionNeeded(onRequest: () -> Unit, modifier: Modifier = Modifie
             )
             Button(onClick = onRequest, modifier = Modifier.padding(top = 16.dp)) {
                 Text("Grant permission")
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocationServicesNeeded(onOpenSettings: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Filled.BluetoothSearching,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "Location services needed",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Text(
+                text = "On this Android version, Bluetooth scanning only returns results " +
+                    "while system Location is switched on. AstraMesh does not use your " +
+                    "location for anything else.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Button(onClick = onOpenSettings, modifier = Modifier.padding(top = 16.dp)) {
+                Text("Open Location settings")
             }
         }
     }
