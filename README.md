@@ -14,7 +14,7 @@ delivered via store-and-forward when a recipient is temporarily offline.
 | Stage | Scope | State |
 |------|-------|-------|
 | 0 | Gradle multi-module skeleton, CI, app shell | ✅ builds |
-| 1 | Domain + protocol models + serialization tests | in progress |
+| 1 | Domain + protocol models + serialization tests | ✅ 17 tests |
 | 2 | Room persistence | planned |
 | 3 | BLE discovery | planned |
 | 4 | Transport abstraction (BLE GATT) | planned |
