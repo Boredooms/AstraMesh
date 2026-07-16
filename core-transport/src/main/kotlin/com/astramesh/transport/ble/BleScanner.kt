@@ -16,7 +16,9 @@ import com.astramesh.transport.TransportKind
 /**
  * Wraps the Android BLE scanner (docs/architecture.md §8).
  *
- * Filters for the AstraMesh service UUID and reports each discovered node as a [PeerEndpoint]
+ * Scans with no OS-level [ScanFilter] and filters manually in [toEndpoint] by checking for the
+ * AstraMesh service data UUID -- see the comment in [start] for why a `ScanFilter.setServiceUuid`
+ * filter does not work with this advertiser. Reports each discovered node as a [PeerEndpoint]
  * via [onPeer]. Callers must hold BLUETOOTH_SCAN (API 31+) / location (API < 31) before [start].
  */
 @SuppressLint("MissingPermission")
@@ -40,13 +42,19 @@ class BleScanner(private val context: Context) {
         }
         if (callback != null) return
 
-        val filters = listOf(
-            ScanFilter.Builder()
-                .setServiceUuid(ParcelUuid(BleConstants.SERVICE_UUID))
-                .build()
-        )
+        // No ScanFilter here. ScanFilter.setServiceUuid() matches ONLY the "Complete List of
+        // Service UUIDs" AD structure -- exactly what BleAdvertiser used to send via
+        // addServiceUuid(). That call was removed from the advertiser to fix a legacy
+        // 31-byte advertisement overflow (see BleAdvertiser's byte-budget comment): our
+        // advertisements now carry ONLY a Service Data AD structure, no Service UUID AD
+        // structure at all. A scan filter asking for a Service UUID AD structure that our own
+        // advertisement never sends matches nothing, ever -- which silently zeroed out every
+        // scan result regardless of permissions, Location toggle, or proximity. Filtering is
+        // done manually in toEndpoint() below (only returns non-null when our service data UUID
+        // is present), which is what actually enforces "this is an AstraMesh device."
+        val filters = emptyList<ScanFilter>()
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
         val cb = object : ScanCallback() {
