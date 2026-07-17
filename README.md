@@ -92,4 +92,4 @@ after enabling "install from unknown sources" — no separate signing step requi
 
 ## License
 
-TBD.
+TBD
